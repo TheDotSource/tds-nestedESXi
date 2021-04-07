@@ -69,14 +69,14 @@
 
     process {
 
-        Write-Verbose ("Porcessing nested system " + $vmName)
+        Write-Verbose ("Processing nested system " + $vmName)
 
         ## Should process
         if ($PSCmdlet.ShouldProcess($vmName)) {
 
             ## Get the VM object
             try {
-                $vm = Get-VM -Name $vmName -ErrorAction Stop -Verbose:$false
+                $vm = Get-VM -Name $vmName -ErrorAction Stop
                 Write-Verbose ("Got VM object.")
             } # try
             catch {
@@ -86,8 +86,8 @@
 
 
             ## Prepare Guest Operation API for nested ESXi
-            $guestOpMgr = Get-View $defaultVIServer.ExtensionData.Content.GuestOperationsManager -Verbose:$false
-            $procMgr = Get-View $guestOpMgr.processManager -Verbose:$False
+            $guestOpMgr = Get-View $defaultVIServer.ExtensionData.Content.GuestOperationsManager
+            $procMgr = Get-View $guestOpMgr.processManager
 
 
             ## Create Auth Session Object (using default appliance credentials)
@@ -200,7 +200,7 @@
 
     end {
 
-        Write-Verbose ("Function complete..")
+        Write-Verbose ("Function complete.")
     } # end
 
 
