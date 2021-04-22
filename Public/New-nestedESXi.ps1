@@ -39,6 +39,12 @@
     .PARAMETER esxNestedNet02
         The network to attach the second pair of NICs to.
 
+    .PARAMETER esxiIsoPath
+        The full path to the ESXi ISO on the datastore. For example, "[DATASTORE01] ISOs/VMware-VMvisor-Installer-7.0U1c-17325551.x86_64.iso"
+
+    .PARAMETER bootMode
+        Configure boot mode for BIOS or UEFI. Default VM boot mode is BIOS.
+
     .PARAMETER reserveMem
         Optional. Reserve all of the configured VM RAM. Avoid swap file creation.
 
@@ -65,8 +71,7 @@
     [CmdletBinding(SupportsShouldProcess=$true,ConfirmImpact="Low")]
     Param
     (
-        [Parameter(Mandatory=$true,ValueFromPipeline=$false)]
-        [string]$ovfPath,
+
         [Parameter(Mandatory=$true,ValueFromPipeline=$false)]
         [string]$dataStore,
         [Parameter(Mandatory=$true,ValueFromPipeline=$true)]
@@ -88,6 +93,11 @@
         [Parameter(Mandatory=$true,ValueFromPipeline=$false)]
         [string]$esxNestedNet02,
         [Parameter(Mandatory=$true,ValueFromPipeline=$false)]
+        [string]$esxiIsoPath,
+        [Parameter(Mandatory=$false,ValueFromPipeline=$false)]
+        [ValidateSet("bios","uefi")]
+        [string]$bootMode = "bios",
+        [Parameter(Mandatory=$true,ValueFromPipeline=$false)]
         [bool]$reserveMem
     )
 
@@ -101,37 +111,74 @@
 
     process {
 
-        Write-Verbose ("Processing nested ESXI host on VM " + $vmName)
-
         ## Should process
         if ($PSCmdlet.ShouldProcess($vmName)) {
 
-            Write-Verbose ("Deploying OVA: " + $ovfPath)
+            Write-Verbose ("Creating virtual machine object " + $vmName)
 
-            ## Import the OVA
+            ## Create the VM object
             try {
-                Import-VApp -Source $ovfPath -Name $vmName -VMHost $vmHost -DiskStorageFormat Thin -Datastore $dataStore -Verbose:$false -ErrorAction Stop | Out-Null
-                Write-Verbose ("Deployed OVA.")
+                $vm = New-VM -VMHost $vmHost -Datastore $dataStore -Name $vmName -MemoryGB $esxRAM -NumCpu $esxCores -DiskGB 4 -ErrorAction Stop
+                Write-Verbose ("Created virtual machine " + $vmName)
             } # try
             catch {
-                throw ("Failed to deploy OVA " + $ovfPath + " , the CMDlet returned " + $_.exception.message)
+                throw ("Failed to create virtual machine " + $vmName + " , the CMDlet returned " + $_.exception.message)
             } # catch
 
 
-            ## Get the VM object
+            ## Enable Hardware Virtualisation option and set guest OS type to ESXi 6.5 or above.
+            Write-Verbose ("Configuring hardware virtualisation and guest OS type.")
+
             try {
-                $vm = Get-VM -Name $vmName -Verbose:$false -ErrorAction Stop
-                Write-Verbose ("Got VM object.")
+                $spec = New-Object VMware.Vim.VirtualMachineConfigSpec
+                $spec.nestedHVEnabled = $true
+                $spec.GuestId = 'vmkernel65Guest'
+                $vm.ExtensionData.ReconfigVM($spec)
+
+                Write-Verbose ("Completed.")
             } # try
             catch {
-                throw ("Failed to get VM object, CMDlet returned " + $_.exception.message)
+                throw ("Failed to configure VM object for " + $vmName + " , the CMDlet returned " + $_.exception.message)
             } # catch
 
 
+            ## Remove existing BusLogic SCSI adapter, this will be replaced by a paravirtualised adapter
+            Write-Verbose ("Changing VM SCSI controller to Paravirtualised.")
+
+            try {
+                $vmView = $vm | Get-View
+
+                $spec = New-Object VMware.Vim.VirtualMachineConfigSpec
+                $spec.deviceChange = @()
+
+                $oldCtrl = New-Object VMware.Vim.VirtualDeviceConfigSpec
+                $oldCtrl.device = $vmView.Config.Hardware.Device | Where-Object {$_.DeviceInfo.Label -eq ("SCSI controller 0")}
+                $oldCtrl.operation = "remove"
+                $spec.deviceChange += $oldCtrl
+
+                $newCtrl = New-Object VMware.Vim.VirtualDeviceConfigSpec
+                $newCtrl.device = New-Object VMware.Vim.ParaVirtualSCSIController
+                $newCtrl.device.busNumber = 0
+                $newCtrl.device.DeviceInfo = New-Object VMware.Vim.Description
+                $newCtrl.device.DeviceInfo.label = "SCSI controller 0"
+                $newCtrl.device.DeviceInfo.summary = "VMware paravirtual SCSI"
+                $newCtrl.device.key = -100
+                $newCtrl.device.scsiCtlrUnitNumber = 7
+                $newCtrl.operation = "add"
+                $spec.deviceChange += $newCtrl
+
+                $vmView.ReconfigVM_Task($spec)
+
+                Write-Verbose ("Completed.")
+            } # try
+            catch {
+                throw ("Failed to configure VM SCSI controller for " + $vmName + " , the CMDlet returned " + $_.exception.message)
+            } # catch
+
+
+            ## Remove all existing net adapters, these will be recreated with VMXNET3 adapters
             Write-Verbose ("Stripping existing NICs from VM.")
 
-
-            ## Remove all existing net adapters
             try {
                 $vm | Get-NetworkAdapter -Verbose:$false | Remove-NetworkAdapter -Confirm:$false -Verbose:$false -ErrorAction Stop
                 Write-Verbose ("Removed existing NICs.")
@@ -169,16 +216,6 @@
             } # try
             catch {
                 throw ("Failed to add net adapter, the CMDlet returned " + $_.exception.message)
-            } # catch
-
-
-            ## Configure CPU and RAM
-            try {
-                $config = Set-VM -VM $VM -MemoryGB $esxRAM -CoresPerSocket $esxCores -NumCpu $esxCores -Confirm:$false -Verbose:$false -ErrorAction Stop
-                Write-Verbose ("Host CPU and RAM set to " + $esxRAM + "GB and " + $esxCores + " cores.")
-            } # try
-            catch {
-                throw ("Failed to configure host RAM and CPU, CMDlet returned " + $_.exception.message)
             } # catch
 
             $i = 0
@@ -237,14 +274,32 @@
             } # else
 
 
-            ## Power on nested host
+            ## Set boot mode if specified, default config is BIOS
+            if ($bootMode -eq "uefi") {
+
+                Write-Verbose ("Setting boot mode to UEFI.")
+
+                try {
+                    $guestConfig = New-Object VMware.Vim.VirtualMachineConfigSpec
+                    $guestConfig.Firmware = [VMware.Vim.GuestOsDescriptorFirmwareType]::efi
+                    $vm.ExtensionData.ReconfigVM($spec)
+
+                    Write-Verbose ("Configured boot mode.")
+                } # try
+                catch {
+                    throw ("Failed to configure boot mode, the CMDlet returned " + $_.exception.message)
+                } # catch
+
+            } # if
+
+
+            ## Add a CD drive with the ESXi media mounted
             try {
-                Write-Verbose ("Waiting for nested host to boot.")
-                $config = Start-VM -VM $VM -Verbose:$false -ErrorAction Stop  | Wait-Tools -Verbose:$false
-                Write-Verbose ("Host booted.")
+                New-CDDrive -VM $vm -IsoPath $esxiIsoPath -StartConnected -ErrorAction Stop
+                Write-Verbose ("CDROM drive created and media mounted.")
             } # try
             catch {
-                throw ("Failed to power on nested host, the CMDlet returned " + $_.exception.message)
+                throw ("Failed to create CDROM drive, the CMDlet returned " + $_.exception.message)
             } # catch
 
 
