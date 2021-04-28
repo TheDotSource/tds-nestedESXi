@@ -40,10 +40,10 @@
         The network to attach the second pair of NICs to.
 
     .PARAMETER esxiIsoPath
-        The full path to the ESXi ISO on the datastore. For example, "[DATASTORE01] ISOs/VMware-VMvisor-Installer-7.0U1c-17325551.x86_64.iso"
+        Optional. Mount a piece of ISO media. For example, "[DATASTORE01] ISOs/VMware-VMvisor-Installer-7.0U1c-17325551.x86_64.iso"
 
     .PARAMETER bootMode
-        Configure boot mode for BIOS or UEFI. Default VM boot mode is BIOS.
+        Optional. Configure boot mode for BIOS or UEFI. Default VM boot mode is BIOS.
 
     .PARAMETER reserveMem
         Optional. Reserve all of the configured VM RAM. Avoid swap file creation.
@@ -55,11 +55,18 @@
         None.
 
     .EXAMPLE
-        New-nestedESXi -ovfPath C:\DML\esxi_67u2\esxi_67u2.ovf -dataStore datastore01 -vmName nestedVM01
-        -vmHost host01.local -esxRAM 16 -esxCores 4 -esxHD01 20 -esxHD02 30 -esxHD03 40
-        -esxNestedNet01 pg01Pod02 -esxNestedNet02 pg02Pod02 -reserveMem $true -Verbose
+        New-nestedESXi -dataStore DATASTORE01 -vmName podtest01 -vmHost esx01.lab.local -esxRAM 8
+        -esxCores 8 -esxHD01 10 -esxHD02 80 -esxHD03 100 -esxNestedNet01 pg01pod01 -esxNestedNet02 pg02pod01
+        -bootMode uefi -reserveMem $false
 
-        Deploy a nested ESXi host using the specified paramters.
+        Deploy a nested ESXi host using the specified paramters with UEFI boot mode. No ISO media mounted.
+
+    .EXAMPLE
+        New-nestedESXi -dataStore DATASTORE01 -vmName podtest01 -vmHost esx01.lab.local -esxRAM 8
+        -esxCores 8 -esxHD01 10 -esxHD02 80 -esxHD03 100 -esxNestedNet01 pg01pod01 -esxNestedNet02 pg02pod01
+        -esxiIsoPath "[DATASTORE01] ISOs/VMware-VMvisor-Installer-7.0U2-17630552.x86_64.iso" -bootMode bios -reserveMem $false
+
+        Deploy a nested ESXi host using the specified paramters. with BIOS boot mode, mounting specified ISO media.
 
     .LINK
 
