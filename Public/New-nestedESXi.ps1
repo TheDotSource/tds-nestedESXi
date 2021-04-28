@@ -92,7 +92,7 @@
         [string]$esxNestedNet01,
         [Parameter(Mandatory=$true,ValueFromPipeline=$false)]
         [string]$esxNestedNet02,
-        [Parameter(Mandatory=$true,ValueFromPipeline=$false)]
+        [Parameter(Mandatory=$false,ValueFromPipeline=$false)]
         [string]$esxiIsoPath,
         [Parameter(Mandatory=$false,ValueFromPipeline=$false)]
         [ValidateSet("bios","uefi")]
@@ -282,7 +282,7 @@
                 try {
                     $guestConfig = New-Object VMware.Vim.VirtualMachineConfigSpec
                     $guestConfig.Firmware = [VMware.Vim.GuestOsDescriptorFirmwareType]::efi
-                    $vm.ExtensionData.ReconfigVM($spec)
+                    $config = $vm.ExtensionData.ReconfigVM($guestConfig)
 
                     Write-Verbose ("Configured boot mode.")
                 } # try
@@ -294,14 +294,19 @@
 
 
             ## Add a CD drive with the ESXi media mounted
-            try {
-                New-CDDrive -VM $vm -IsoPath $esxiIsoPath -StartConnected -ErrorAction Stop
-                Write-Verbose ("CDROM drive created and media mounted.")
-            } # try
-            catch {
-                throw ("Failed to create CDROM drive, the CMDlet returned " + $_.exception.message)
-            } # catch
+            if ($esxiIsoPath) {
 
+                Write-Verbose ("Mounting specified media " + $esxiIsoPath)
+
+                try {
+                    New-CDDrive -VM $vm -IsoPath $esxiIsoPath -StartConnected -ErrorAction Stop | Out-Null
+                    Write-Verbose ("Media mounted.")
+                } # try
+                catch {
+                    throw ("Failed to create CDROM drive, the CMDlet returned " + $_.exception.message)
+                } # catch
+            
+            } # if
 
             ## Return VM object of nested host
             return $vm
