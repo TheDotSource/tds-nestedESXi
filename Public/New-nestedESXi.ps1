@@ -134,12 +134,14 @@
 
 
             ## Enable Hardware Virtualisation option and set guest OS type to ESXi 6.5 or above.
-            Write-Verbose ("Configuring hardware virtualisation and guest OS type.")
+            Write-Verbose ("Configuring hardware virtualisation, guest OS type and time synchronisation.")
 
             try {
                 $spec = New-Object VMware.Vim.VirtualMachineConfigSpec
                 $spec.nestedHVEnabled = $true
                 $spec.GuestId = 'vmkernel65Guest'
+                $spec.Tools = New-Object VMware.Vim.ToolsConfigInfo
+                $spec.Tools.syncTimeWithHost = $true
                 $vm.ExtensionData.ReconfigVM($spec)
 
                 Write-Verbose ("Completed.")
