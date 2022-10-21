@@ -125,7 +125,7 @@
 
             ## Create the VM object
             try {
-                $vm = New-VM -VMHost $vmHost -Datastore $dataStore -Name $vmName -MemoryGB $esxRAM -NumCpu $esxCores -DiskGB 4 -ErrorAction Stop
+                $vm = New-VM -VMHost $vmHost -Datastore $dataStore -Name $vmName -MemoryGB $esxRAM -NumCpu $esxCores -DiskGB 10 -ErrorAction Stop
                 Write-Verbose ("Created virtual machine " + $vmName)
             } # try
             catch {
